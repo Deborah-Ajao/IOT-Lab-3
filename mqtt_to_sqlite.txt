@@ -1,0 +1,97 @@
+python
+import sqlite3
+import paho.mqtt.client as mqtt
+from datetime import datetime
+
+# -----------------------------
+# SETTINGS
+# -----------------------------
+BROKER_IP = "192.168.132.68"
+BROKER_PORT = 1883
+
+TEMP_TOPIC = "esp32/dht/temperature"
+HUMIDITY_TOPIC = "esp32/dht/humidity"
+
+DATABASE = r"C:\Users\Deborah\Desktop\textbooks\Year 5 Semester 1\IOT\lab 3\results\sensor_data.db"
+
+# -----------------------------
+# CREATE DATABASE
+# -----------------------------
+conn = sqlite3.connect(DATABASE)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS sensor_readings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    temperature REAL,
+    humidity REAL,
+    timestamp TEXT
+)
+""")
+
+conn.commit()
+
+# Store latest values
+temperature = None
+humidity = None
+
+
+# -----------------------------
+# MQTT CALLBACK
+# -----------------------------
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("Connected to MQTT broker")
+        client.subscribe(TEMP_TOPIC)
+        client.subscribe(HUMIDITY_TOPIC)
+        print("Subscribed to sensor topics")
+    else:
+        print("MQTT connection failed:", rc)
+        
+
+def on_message(client, userdata, msg):
+    global temperature, humidity
+    
+    value = float(msg.payload.decode())
+    
+    if msg.topic == TEMP_TOPIC:
+        temperature = value
+        print("Temperature:", temperature)
+        
+    elif msg.topic == HUMIDITY_TOPIC:
+        humidity = value
+        print("Humidity:", humidity)
+        
+    # Save only when we have both readings
+    if temperature is not None and humidity is not None:
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        cursor.execute("""
+        INSERT INTO sensor_readings
+        (temperature, humidity, timestamp)
+        VALUES (?, ?, ?)
+        """, (temperature, humidity, timestamp))
+        
+        conn.commit()
+        
+        print("Saved to SQLite:",
+              temperature, "°C |",
+              humidity, "% |",
+              timestamp)
+              
+
+# -----------------------------
+# MQTT CLIENT
+# -----------------------------
+client = mqtt.Client()
+
+client.on_connect = on_connect
+client.on_message = on_message
+
+print("Connecting to MQTT broker...")
+
+client.connect(BROKER_IP, BROKER_PORT, 60)
+
+client.loop_forever()
+
